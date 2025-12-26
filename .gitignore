@@ -1,0 +1,19 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Credentials
+service_account.json
+*.json
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# State files
+data/state.json

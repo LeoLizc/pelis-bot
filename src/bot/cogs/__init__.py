@@ -1,0 +1,3 @@
+"""
+Cogs (extensiones) del bot.
+"""
