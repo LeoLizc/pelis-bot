@@ -85,7 +85,7 @@ class StrikeMovieView(View):
         embed = discord.Embed(
             title="❌ Cancelado",
             description="No se tachó ninguna película.",
-            color=discord.Color.grey()
+            color=discord.Color.greyple()
         )
         
         # Deshabilitar botones
@@ -216,7 +216,7 @@ class MovieSelectionView(View):
         embed = discord.Embed(
             title="❌ Cancelado",
             description="No se tachó ninguna película.",
-            color=discord.Color.grey()
+            color=discord.Color.greyple()
         )
         
         self.select_menu.disabled = True

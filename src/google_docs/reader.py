@@ -49,20 +49,39 @@ class MovieDocReader:
         """
         Encuentra el índice donde comienza el contenido a ignorar (última página).
         Busca delimitadores como '-----' o saltos de página.
+        Retorna el índice del elemento donde se debe cortar.
         """
+        last_page_break_index = None
+        
         for i, element in enumerate(content):
+            # Detectar sectionBreak (salto de sección/página)
+            if 'sectionBreak' in element:
+                last_page_break_index = i
+                continue
+            
             if 'paragraph' in element:
                 paragraph = element['paragraph']
+                
+                # Detectar pageBreak dentro de un párrafo
+                for elem in paragraph.get('elements', []):
+                    if 'pageBreak' in elem:
+                        last_page_break_index = i
+                        break
+                
+                # Buscar delimitadores de texto como '-----'
                 for elem in paragraph.get('elements', []):
                     if 'textRun' in elem:
                         text = elem['textRun'].get('content', '').strip()
+                        # Verificar si el texto contiene un delimitador
                         for delimiter in config.PAGE_DELIMITERS:
-                            if delimiter in text:
+                            if text == delimiter or delimiter in text:
+                                # Encontramos un delimitador visual
                                 return i
-            # Detectar salto de página
-            if 'sectionBreak' in element or 'pageBreak' in element:
-                # Verificar si es el último salto significativo
-                pass
+        
+        # Si hay un salto de página/sección, usar ese como punto de corte
+        if last_page_break_index is not None:
+            return last_page_break_index
+        
         return None
     
     def _parse_movie_line(self, text: str, is_strikethrough: bool, 

@@ -64,6 +64,53 @@ def test_get_movies(reader: MovieDocReader):
         return []
 
 
+def test_delimiter_detection(reader: MovieDocReader):
+    """Prueba la detección del delimitador de última página."""
+    print("\n" + "=" * 50)
+    print("TEST: Detección de delimitador")
+    print("=" * 50)
+    
+    try:
+        document = reader.fetch_content()
+        content = document.get('body', {}).get('content', [])
+        
+        print(f"Total de elementos en el documento: {len(content)}")
+        
+        # Buscar el delimitador
+        delimiter_index = reader._find_delimiter_index(content)
+        
+        if delimiter_index:
+            print(f"✅ Delimitador encontrado en índice: {delimiter_index}")
+            print(f"   Elementos antes del delimitador: {delimiter_index}")
+            print(f"   Elementos ignorados: {len(content) - delimiter_index}")
+            
+            # Mostrar qué hay en ese índice
+            if delimiter_index < len(content):
+                elem = content[delimiter_index]
+                if 'paragraph' in elem:
+                    for e in elem['paragraph'].get('elements', []):
+                        if 'textRun' in e:
+                            text = e['textRun'].get('content', '').strip()
+                            if text:
+                                print(f"   Texto del delimitador: '{text}'")
+        else:
+            print("⚠️ No se encontró ningún delimitador")
+            print("\nMostrando últimos 5 elementos del documento:")
+            for i, elem in enumerate(content[-5:]):
+                idx = len(content) - 5 + i
+                if 'paragraph' in elem:
+                    for e in elem['paragraph'].get('elements', []):
+                        if 'textRun' in e:
+                            text = e['textRun'].get('content', '').strip()
+                            if text:
+                                print(f"   [{idx}] '{text[:50]}...' " if len(text) > 50 else f"   [{idx}] '{text}'")
+                elif 'sectionBreak' in elem:
+                    print(f"   [{idx}] <sectionBreak>")
+                    
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
 def test_display_movies(movies, limit=10):
     """Muestra algunas películas de ejemplo."""
     print("\n" + "=" * 50)
@@ -124,13 +171,16 @@ def main():
         print("\n❌ No se puede continuar sin contenido")
         return
     
-    # Test 3: Obtener películas
+    # Test 3: Detección de delimitador
+    test_delimiter_detection(reader)
+    
+    # Test 4: Obtener películas
     movies = test_get_movies(reader)
     
-    # Test 4: Mostrar películas
+    # Test 5: Mostrar películas
     test_display_movies(movies)
     
-    # Test 5: Filtrar por proponente
+    # Test 6: Filtrar por proponente
     test_filter_by_proponent(reader)
     
     print("\n" + "=" * 50)
