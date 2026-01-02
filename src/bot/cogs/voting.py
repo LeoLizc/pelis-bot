@@ -326,7 +326,7 @@ class VotingCog(commands.Cog):
             del self.active_sessions[session.channel_id]
             logger.debug(f"Sesión de votación limpiada para canal {session.channel_id}")
     
-    @app_commands.command(name="cancelar_votacion", description="Cancela la votación activa")
+    @app_commands.command(name="cancelar_votacion", description="Cancela la votación activa sin mostrar resultados")
     async def cancelar_votacion(self, interaction: discord.Interaction):
         """Cancela una votación activa."""
         # Log del comando
@@ -371,6 +371,103 @@ class VotingCog(commands.Cog):
                 pass
         
         await interaction.response.send_message("✅ Votación cancelada.")
+    
+    @app_commands.command(name="finalizar_votacion", description="Finaliza la votación y muestra los resultados")
+    async def finalizar_votacion(self, interaction: discord.Interaction):
+        """Finaliza una votación activa inmediatamente y muestra los resultados."""
+        # Log del comando
+        logger.command(
+            "finalizar_votacion",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction)
+        )
+        
+        if interaction.channel_id not in self.active_sessions:
+            await interaction.response.send_message(
+                "❌ No hay ninguna votación activa en este canal.",
+                ephemeral=True
+            )
+            return
+        
+        session = self.active_sessions[interaction.channel_id]
+        
+        # Solo el creador o admins pueden finalizar
+        if (session.creator_id != interaction.user.id and 
+            not interaction.user.guild_permissions.administrator):
+            await interaction.response.send_message(
+                "❌ Solo el creador de la votación o un administrador puede finalizarla.",
+                ephemeral=True
+            )
+            return
+        
+        # Marcar como inactiva para evitar más votos
+        session.is_active = False
+        
+        logger.action(
+            "VOTING_FINISH_EARLY",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            details="Votación finalizada manualmente"
+        )
+        
+        # Obtener resultados
+        winner, votes = session.get_winner()
+        results = session.get_results()
+        
+        # Log de fin de votación
+        if winner:
+            logger.voting_end(
+                winner=winner.titulo,
+                votes=votes,
+                guild=self._get_guild_name(interaction)
+            )
+        
+        # Crear embed de resultados
+        embed = discord.Embed(
+            title="🎉 ¡Votación finalizada!",
+            description="*Finalizada manualmente*",
+            color=discord.Color.gold()
+        )
+        
+        if winner:
+            embed.add_field(
+                name="🏆 Ganadora",
+                value=f"**{winner.titulo}**\nPropuesta por: {winner.proponente}\nVotos: {votes}",
+                inline=False
+            )
+            
+            # Mostrar ranking completo
+            ranking = "\n".join([
+                f"{'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else f'{i+1}.'} "
+                f"{movie.titulo} - {count} voto(s)"
+                for i, (movie, count) in enumerate(results)
+            ])
+            embed.add_field(name="📊 Resultados", value=ranking, inline=False)
+        else:
+            embed.add_field(
+                name="📊 Resultados",
+                value="No hubo votos en esta votación.",
+                inline=False
+            )
+        
+        # Crear vista con botón para tachar ganadora
+        from src.bot.views.movie_views import StrikeMovieView
+        view = None
+        if winner and votes > 0:
+            view = StrikeMovieView(winner, self.doc_reader, None, label="Tachar Ganadora")
+        
+        # Deshabilitar botones del mensaje original
+        if session.message:
+            try:
+                await session.message.edit(view=None)
+            except:
+                pass
+        
+        # Limpiar sesión
+        del self.active_sessions[interaction.channel_id]
+        logger.debug(f"Sesión de votación limpiada para canal {interaction.channel_id}")
+        
+        await interaction.response.send_message(embed=embed, view=view)
     
     @app_commands.command(name="estado_votacion", description="Muestra el estado de la votación actual")
     async def estado_votacion(self, interaction: discord.Interaction):
