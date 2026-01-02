@@ -12,6 +12,7 @@ from discord.ext import commands
 from src.google_docs import MovieDocReader
 from src.models import Movie
 from src.bot.views.voting_views import VotingView
+from src.bot.views.voting_setup_view import VotingSetupView
 from src.utils.logger import BotLogger
 
 logger = BotLogger(__name__)
@@ -397,6 +398,137 @@ class VotingCog(commands.Cog):
         embed.set_footer(text=f"Tiempo restante: {minutes}m {seconds}s")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @app_commands.command(name="votacion_manual", description="Inicia una votación eligiendo las películas manualmente")
+    @app_commands.describe(
+        max_votos="Máximo de votos por usuario (1-5)",
+        tiempo="Duración en minutos (1-60)"
+    )
+    async def votacion_manual(
+        self,
+        interaction: discord.Interaction,
+        max_votos: int = 1,
+        tiempo: int = 5
+    ):
+        """Inicia el configurador de votación manual."""
+        # Log del comando
+        logger.command(
+            "votacion_manual",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            args={"max_votos": max_votos, "tiempo": tiempo}
+        )
+        
+        # Validaciones
+        if max_votos < 1 or max_votos > 5:
+            await interaction.response.send_message(
+                "❌ Los votos máximos deben estar entre 1 y 5.",
+                ephemeral=True
+            )
+            return
+        
+        if tiempo < 1 or tiempo > 60:
+            await interaction.response.send_message(
+                "❌ El tiempo debe estar entre 1 y 60 minutos.",
+                ephemeral=True
+            )
+            return
+        
+        # Verificar si ya hay una votación activa
+        if interaction.channel_id in self.active_sessions:
+            session = self.active_sessions[interaction.channel_id]
+            if session.is_active:
+                logger.debug(f"Votación activa ya existe en canal {interaction.channel_id}")
+                await interaction.response.send_message(
+                    "❌ Ya hay una votación activa en este canal. "
+                    "Espera a que termine o usa `/cancelar_votacion`.",
+                    ephemeral=True
+                )
+                return
+        
+        # Crear vista de configuración
+        view = VotingSetupView(
+            doc_reader=self.doc_reader,
+            cog=self,
+            creator=interaction.user,
+            duration_minutes=tiempo,
+            max_votes_per_user=max_votos
+        )
+        view.channel_id = interaction.channel_id
+        
+        await interaction.response.send_message(
+            embed=view.get_embed(),
+            view=view
+        )
+        
+        # Guardar referencia al mensaje
+        view.message = await interaction.original_response()
+        
+        logger.action(
+            "VOTING_SETUP_START",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            details=f"Configurando votación manual (tiempo={tiempo}m, votos={max_votos})"
+        )
+    
+    async def start_manual_voting(
+        self,
+        interaction: discord.Interaction,
+        movies: List[Movie],
+        duration_minutes: int,
+        max_votes_per_user: int,
+        setup_message: discord.Message
+    ):
+        """
+        Inicia una votación con películas seleccionadas manualmente.
+        Llamado desde VotingSetupView.
+        """
+        try:
+            # Crear sesión de votación
+            session = VotingSession(
+                movies=movies,
+                max_votes_per_user=max_votes_per_user,
+                duration_minutes=duration_minutes,
+                channel_id=interaction.channel_id,
+                creator_id=interaction.user.id
+            )
+            self.active_sessions[interaction.channel_id] = session
+            
+            # Log de inicio de votación
+            logger.voting_start(
+                movies_count=len(movies),
+                duration=duration_minutes,
+                user=str(interaction.user),
+                guild=self._get_guild_name(interaction)
+            )
+            logger.action(
+                "VOTING_MANUAL_START",
+                user=str(interaction.user),
+                guild=self._get_guild_name(interaction),
+                details=f"Películas: {', '.join(m.titulo for m in movies)}"
+            )
+            
+            # Crear embed de votación
+            embed = self._create_voting_embed(session)
+            
+            # Crear vista con botones
+            view = VotingView(session, self)
+            
+            # Editar el mensaje de configuración para mostrar la votación
+            await interaction.response.edit_message(embed=embed, view=view)
+            session.message = setup_message
+            
+            # Programar fin de votación
+            self.bot.loop.create_task(
+                self._end_voting_after(session, duration_minutes * 60)
+            )
+            
+        except Exception as e:
+            logger.error(f"Error al iniciar votación manual: {e}", exc_info=True)
+            await interaction.response.send_message(
+                f"❌ Error al iniciar votación: {str(e)}",
+                ephemeral=True
+            )
 
 
 async def setup(bot: commands.Bot):
