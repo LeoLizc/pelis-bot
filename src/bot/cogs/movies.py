@@ -5,13 +5,13 @@ import random
 import discord
 from discord import app_commands
 from discord.ext import commands
-import logging
 
 from src.google_docs import MovieDocReader
 from src.bot.views.movie_views import StrikeMovieView, MovieSelectionView
 from src.bot.views.pagination import PaginationView
+from src.utils.logger import BotLogger
 
-logger = logging.getLogger(__name__)
+logger = BotLogger(__name__)
 
 
 class MoviesCog(commands.Cog):
@@ -20,6 +20,11 @@ class MoviesCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.doc_reader = MovieDocReader()
+        logger.info("MoviesCog inicializado")
+    
+    def _get_guild_name(self, interaction: discord.Interaction) -> str:
+        """Obtiene el nombre del servidor de forma segura."""
+        return interaction.guild.name if interaction.guild else "DM"
     
     @app_commands.command(name="listar", description="Lista las películas del documento")
     @app_commands.describe(filtro="Filtrar por: todas, pendientes o vistas")
@@ -32,7 +37,17 @@ class MoviesCog(commands.Cog):
         """Muestra la lista de películas según el filtro seleccionado."""
         await interaction.response.defer()
         
+        # Log del comando
+        logger.command(
+            "listar",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            args={"filtro": filtro}
+        )
+        
         try:
+            logger.debug(f"Obteniendo películas con filtro: {filtro}")
+            
             if filtro == "todas":
                 movies = self.doc_reader.get_movies()
                 title = "📽️ Todas las películas"
@@ -45,6 +60,8 @@ class MoviesCog(commands.Cog):
                 movies = self.doc_reader.get_pending_movies()
                 title = "⏳ Películas pendientes"
                 color = discord.Color.orange()
+            
+            logger.debug(f"Se encontraron {len(movies)} películas")
             
             if not movies:
                 embed = discord.Embed(
@@ -64,9 +81,10 @@ class MoviesCog(commands.Cog):
             )
             
             await interaction.followup.send(embed=view.get_embed(), view=view)
+            logger.debug(f"Lista enviada correctamente: {len(movies)} películas")
             
         except Exception as e:
-            logger.error(f"Error en comando listar: {e}")
+            logger.error(f"Error en comando listar: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error al obtener las películas: {str(e)}")
     
     @app_commands.command(name="elegir_azar", description="Elige una película al azar")
@@ -75,15 +93,25 @@ class MoviesCog(commands.Cog):
         """Elige una película pendiente al azar, opcionalmente filtrada por proponente."""
         await interaction.response.defer()
         
+        # Log del comando
+        logger.command(
+            "elegir_azar",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            args={"proponente": proponente}
+        )
+        
         try:
             if proponente:
-                # Filtrar por proponente y solo pendientes
+                logger.debug(f"Filtrando por proponente: {proponente}")
                 all_movies = self.doc_reader.get_movies_by_proponent(proponente)
                 movies = [m for m in all_movies if m.is_pending]
                 filter_text = f"propuestas por **{proponente}**"
             else:
                 movies = self.doc_reader.get_pending_movies()
                 filter_text = "pendientes"
+            
+            logger.debug(f"Películas disponibles para elegir: {len(movies)}")
             
             if not movies:
                 embed = discord.Embed(
@@ -96,6 +124,7 @@ class MoviesCog(commands.Cog):
             
             # Elegir al azar
             movie = random.choice(movies)
+            logger.info(f"Película elegida al azar: '{movie.titulo}' de {len(movies)} opciones")
             
             embed = discord.Embed(
                 title="🎲 ¡Película elegida!",
@@ -111,7 +140,7 @@ class MoviesCog(commands.Cog):
             await interaction.followup.send(embed=embed, view=view)
             
         except Exception as e:
-            logger.error(f"Error en comando elegir_azar: {e}")
+            logger.error(f"Error en comando elegir_azar: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="tachar", description="Tacha una película como vista")
@@ -120,8 +149,18 @@ class MoviesCog(commands.Cog):
         """Busca y tacha una película por nombre."""
         await interaction.response.defer()
         
+        # Log del comando
+        logger.command(
+            "tachar",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            args={"nombre": nombre}
+        )
+        
         try:
+            logger.debug(f"Buscando película: '{nombre}'")
             matches = self.doc_reader.find_movie_by_title(nombre, pending_only=True)
+            logger.debug(f"Coincidencias encontradas: {len(matches)}")
             
             if not matches:
                 embed = discord.Embed(
@@ -135,6 +174,8 @@ class MoviesCog(commands.Cog):
             if len(matches) == 1:
                 # Solo una coincidencia - mostrar confirmación
                 movie = matches[0]
+                logger.debug(f"Una coincidencia encontrada: '{movie.titulo}'")
+                
                 embed = discord.Embed(
                     title="⚠️ Confirmar tachado",
                     description=f"¿Deseas tachar esta película?",
@@ -147,6 +188,8 @@ class MoviesCog(commands.Cog):
                 await interaction.followup.send(embed=embed, view=view)
             else:
                 # Múltiples coincidencias - mostrar selección
+                logger.debug(f"Múltiples coincidencias: {[m.titulo for m in matches[:5]]}")
+                
                 embed = discord.Embed(
                     title="🔍 Múltiples coincidencias",
                     description=f"Se encontraron **{len(matches)}** películas. Selecciona cuál tachar:",
@@ -164,7 +207,7 @@ class MoviesCog(commands.Cog):
                 await interaction.followup.send(embed=embed, view=view)
                 
         except Exception as e:
-            logger.error(f"Error en comando tachar: {e}")
+            logger.error(f"Error en comando tachar: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
     
     @app_commands.command(name="buscar", description="Busca películas por título o proponente")
@@ -180,11 +223,23 @@ class MoviesCog(commands.Cog):
         """Busca películas por título o proponente."""
         await interaction.response.defer()
         
+        # Log del comando
+        logger.command(
+            "buscar",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            args={"termino": termino, "tipo": tipo}
+        )
+        
         try:
+            logger.debug(f"Buscando por {tipo}: '{termino}'")
+            
             if tipo == "proponente":
                 movies = self.doc_reader.get_movies_by_proponent(termino)
             else:
                 movies = self.doc_reader.find_movie_by_title(termino, pending_only=False)
+            
+            logger.debug(f"Resultados encontrados: {len(movies)}")
             
             if not movies:
                 embed = discord.Embed(
@@ -206,7 +261,7 @@ class MoviesCog(commands.Cog):
             await interaction.followup.send(embed=view.get_embed(), view=view)
             
         except Exception as e:
-            logger.error(f"Error en comando buscar: {e}")
+            logger.error(f"Error en comando buscar: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}")
 
 

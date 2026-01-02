@@ -12,24 +12,17 @@ Características:
 Uso:
     python main.py
 """
-import logging
 import sys
 
-# Configurar logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('bot.log', encoding='utf-8')
-    ]
-)
-
-logger = logging.getLogger(__name__)
+from src.utils import setup_logging, get_logger
 
 
 def main():
     """Punto de entrada principal del bot."""
+    # Configurar logging antes de cualquier otra cosa
+    setup_logging()
+    
+    logger = get_logger(__name__)
     logger.info("Iniciando Pelis Bot...")
     
     try:
@@ -41,16 +34,19 @@ def main():
             logger.error("DISCORD_TOKEN no configurado. Crea un archivo .env con el token.")
             sys.exit(1)
         
+        logger.info("Configuración cargada correctamente")
+        logger.debug(f"Google Doc ID: {config.GOOGLE_DOC_ID}")
+        
         # Iniciar bot
         bot = PelisBot()
         bot.run(config.DISCORD_TOKEN)
         
     except ImportError as e:
-        logger.error(f"Error de importación: {e}")
+        logger.error(f"Error de importación: {e}", exc_info=True)
         logger.error("Asegúrate de instalar las dependencias: pip install -r requirements.txt")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Error fatal: {e}")
+        logger.critical(f"Error fatal: {e}", exc_info=True)
         sys.exit(1)
 
 

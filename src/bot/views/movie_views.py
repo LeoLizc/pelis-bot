@@ -4,12 +4,12 @@ Vistas relacionadas con películas (botones de tachar, selección, etc.)
 import discord
 from discord.ui import View, Button, Select
 from typing import List, Optional
-import logging
 
 from src.models import Movie
 from src.google_docs import MovieDocReader
+from src.utils.logger import BotLogger
 
-logger = logging.getLogger(__name__)
+logger = BotLogger(__name__)
 
 
 class StrikeMovieView(View):
@@ -49,6 +49,8 @@ class StrikeMovieView(View):
     async def confirm_callback(self, interaction: discord.Interaction):
         """Callback cuando se confirma el tachado."""
         try:
+            logger.debug(f"Intentando tachar película: '{self.movie.titulo}'")
+            
             # Tachar la película en Google Docs
             self.doc_reader.strike_movie(self.movie)
             
@@ -63,8 +65,12 @@ class StrikeMovieView(View):
                 inline=True
             )
             
-            logger.info(
-                f"Película tachada: '{self.movie.titulo}' por {interaction.user.name}"
+            # Log de acción
+            guild_name = interaction.guild.name if interaction.guild else "DM"
+            logger.movie_strike(
+                movie_title=self.movie.titulo,
+                user=str(interaction.user),
+                guild=guild_name
             )
             
             # Deshabilitar botones
@@ -74,7 +80,7 @@ class StrikeMovieView(View):
             await interaction.response.edit_message(embed=embed, view=self)
             
         except Exception as e:
-            logger.error(f"Error al tachar película: {e}")
+            logger.error(f"Error al tachar película '{self.movie.titulo}': {e}", exc_info=True)
             await interaction.response.send_message(
                 f"❌ Error al tachar la película: {str(e)}",
                 ephemeral=True
@@ -82,6 +88,8 @@ class StrikeMovieView(View):
     
     async def cancel_callback(self, interaction: discord.Interaction):
         """Callback cuando se cancela el tachado."""
+        logger.debug(f"Tachado cancelado para película: '{self.movie.titulo}'")
+        
         embed = discord.Embed(
             title="❌ Cancelado",
             description="No se tachó ninguna película.",
@@ -160,6 +168,8 @@ class MovieSelectionView(View):
         self.selected_movie = self.movies[selected_index]
         self.confirm_button.disabled = False
         
+        logger.debug(f"Película seleccionada del menú: '{self.selected_movie.titulo}'")
+        
         embed = discord.Embed(
             title="🎬 Película seleccionada",
             description=f"Has seleccionado: **{self.selected_movie.titulo}**\n"
@@ -180,6 +190,7 @@ class MovieSelectionView(View):
             return
         
         try:
+            logger.debug(f"Tachando película desde selección: '{self.selected_movie.titulo}'")
             self.doc_reader.strike_movie(self.selected_movie)
             
             embed = discord.Embed(
@@ -193,8 +204,12 @@ class MovieSelectionView(View):
                 inline=True
             )
             
-            logger.info(
-                f"Película tachada: '{self.selected_movie.titulo}' por {interaction.user.name}"
+            # Log de acción
+            guild_name = interaction.guild.name if interaction.guild else "DM"
+            logger.movie_strike(
+                movie_title=self.selected_movie.titulo,
+                user=str(interaction.user),
+                guild=guild_name
             )
             
             # Deshabilitar todo
@@ -205,7 +220,7 @@ class MovieSelectionView(View):
             await interaction.response.edit_message(embed=embed, view=self)
             
         except Exception as e:
-            logger.error(f"Error al tachar película: {e}")
+            logger.error(f"Error al tachar película '{self.selected_movie.titulo}': {e}", exc_info=True)
             await interaction.response.send_message(
                 f"❌ Error al tachar la película: {str(e)}",
                 ephemeral=True
@@ -213,6 +228,8 @@ class MovieSelectionView(View):
     
     async def cancel_callback(self, interaction: discord.Interaction):
         """Callback cuando se cancela."""
+        logger.debug("Selección de película cancelada")
+        
         embed = discord.Embed(
             title="❌ Cancelado",
             description="No se tachó ninguna película.",

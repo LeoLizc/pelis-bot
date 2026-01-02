@@ -4,12 +4,13 @@ Vistas relacionadas con el sistema de votación.
 import discord
 from discord.ui import View, Button
 from typing import TYPE_CHECKING
-import logging
+
+from src.utils.logger import BotLogger
 
 if TYPE_CHECKING:
     from src.bot.cogs.voting import VotingSession, VotingCog
 
-logger = logging.getLogger(__name__)
+logger = BotLogger(__name__)
 
 
 class VotingView(View):
@@ -70,12 +71,27 @@ class VoteButton(Button):
             return
         
         user_id = interaction.user.id
+        guild_name = interaction.guild.name if interaction.guild else "DM"
         
         # Verificar si ya votó por esta película (toggle)
         if user_id in self.session.votes[self.movie_index]:
             success, message = self.session.remove_vote(user_id, self.movie_index)
+            if success:
+                logger.vote(
+                    movie_title=self.movie_title,
+                    user=str(interaction.user),
+                    guild=guild_name,
+                    removed=True
+                )
         else:
             success, message = self.session.add_vote(user_id, self.movie_index)
+            if success:
+                logger.vote(
+                    movie_title=self.movie_title,
+                    user=str(interaction.user),
+                    guild=guild_name,
+                    removed=False
+                )
         
         # Mostrar mensaje efímero
         await interaction.response.send_message(message, ephemeral=True)

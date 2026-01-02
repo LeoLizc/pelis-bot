@@ -8,13 +8,13 @@ from typing import Dict, List, Set
 import discord
 from discord import app_commands
 from discord.ext import commands
-import logging
 
 from src.google_docs import MovieDocReader
 from src.models import Movie
 from src.bot.views.voting_views import VotingView
+from src.utils.logger import BotLogger
 
-logger = logging.getLogger(__name__)
+logger = BotLogger(__name__)
 
 
 class VotingSession:
@@ -116,6 +116,11 @@ class VotingCog(commands.Cog):
         self.doc_reader = MovieDocReader()
         # Sesiones activas por canal
         self.active_sessions: Dict[int, VotingSession] = {}
+        logger.info("VotingCog inicializado")
+    
+    def _get_guild_name(self, interaction: discord.Interaction) -> str:
+        """Obtiene el nombre del servidor de forma segura."""
+        return interaction.guild.name if interaction.guild else "DM"
     
     @app_commands.command(name="votacion", description="Inicia una votación de películas")
     @app_commands.describe(
@@ -132,6 +137,14 @@ class VotingCog(commands.Cog):
     ):
         """Inicia una sesión de votación."""
         await interaction.response.defer()
+        
+        # Log del comando
+        logger.command(
+            "votacion",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            args={"cantidad": cantidad, "max_votos": max_votos, "tiempo": tiempo}
+        )
         
         # Validaciones
         if cantidad < 2 or cantidad > 10:
@@ -150,6 +163,7 @@ class VotingCog(commands.Cog):
         if interaction.channel_id in self.active_sessions:
             session = self.active_sessions[interaction.channel_id]
             if session.is_active:
+                logger.debug(f"Votación activa ya existe en canal {interaction.channel_id}")
                 await interaction.followup.send(
                     "❌ Ya hay una votación activa en este canal. "
                     "Espera a que termine o usa `/cancelar_votacion`."
@@ -159,6 +173,7 @@ class VotingCog(commands.Cog):
         try:
             # Obtener películas pendientes
             pending_movies = self.doc_reader.get_pending_movies()
+            logger.debug(f"Películas pendientes disponibles: {len(pending_movies)}")
             
             if len(pending_movies) < cantidad:
                 await interaction.followup.send(
@@ -169,6 +184,7 @@ class VotingCog(commands.Cog):
             
             # Seleccionar películas al azar
             selected_movies = random.sample(pending_movies, cantidad)
+            logger.debug(f"Películas seleccionadas: {[m.titulo for m in selected_movies]}")
             
             # Crear sesión de votación
             session = VotingSession(
@@ -179,6 +195,14 @@ class VotingCog(commands.Cog):
                 creator_id=interaction.user.id
             )
             self.active_sessions[interaction.channel_id] = session
+            
+            # Log de inicio de votación
+            logger.voting_start(
+                movies_count=cantidad,
+                duration=tiempo,
+                user=str(interaction.user),
+                guild=self._get_guild_name(interaction)
+            )
             
             # Crear embed de votación
             embed = self._create_voting_embed(session)
@@ -195,7 +219,7 @@ class VotingCog(commands.Cog):
             )
             
         except Exception as e:
-            logger.error(f"Error al iniciar votación: {e}")
+            logger.error(f"Error al iniciar votación: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error al iniciar votación: {str(e)}")
     
     def _create_voting_embed(self, session: VotingSession) -> discord.Embed:
@@ -229,22 +253,32 @@ class VotingCog(commands.Cog):
                 view = VotingView(session, self)
                 await session.message.edit(embed=embed, view=view)
             except discord.NotFound:
-                pass
+                logger.warning("Mensaje de votación no encontrado al actualizar")
             except Exception as e:
-                logger.error(f"Error al actualizar mensaje de votación: {e}")
+                logger.error(f"Error al actualizar mensaje de votación: {e}", exc_info=True)
     
     async def _end_voting_after(self, session: VotingSession, seconds: int):
         """Finaliza la votación después del tiempo especificado."""
         await asyncio.sleep(seconds)
         
         if not session.is_active:
+            logger.debug("Votación ya terminada, ignorando fin programado")
             return
         
         session.is_active = False
+        logger.debug(f"Finalizando votación en canal {session.channel_id}")
         
         # Obtener resultados
         winner, votes = session.get_winner()
         results = session.get_results()
+        
+        # Log de fin de votación
+        if winner:
+            logger.voting_end(
+                winner=winner.titulo,
+                votes=votes,
+                guild=None  # No tenemos acceso al guild aquí
+            )
         
         # Crear embed de resultados
         embed = discord.Embed(
@@ -284,15 +318,23 @@ class VotingCog(commands.Cog):
                 if session.message:
                     await session.message.edit(view=None)
         except Exception as e:
-            logger.error(f"Error al finalizar votación: {e}")
+            logger.error(f"Error al finalizar votación: {e}", exc_info=True)
         
         # Limpiar sesión
         if session.channel_id in self.active_sessions:
             del self.active_sessions[session.channel_id]
+            logger.debug(f"Sesión de votación limpiada para canal {session.channel_id}")
     
     @app_commands.command(name="cancelar_votacion", description="Cancela la votación activa")
     async def cancelar_votacion(self, interaction: discord.Interaction):
         """Cancela una votación activa."""
+        # Log del comando
+        logger.command(
+            "cancelar_votacion",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction)
+        )
+        
         if interaction.channel_id not in self.active_sessions:
             await interaction.response.send_message(
                 "❌ No hay ninguna votación activa en este canal.",
@@ -314,6 +356,13 @@ class VotingCog(commands.Cog):
         session.is_active = False
         del self.active_sessions[interaction.channel_id]
         
+        logger.action(
+            "VOTING_CANCEL",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction),
+            details="Votación cancelada manualmente"
+        )
+        
         if session.message:
             try:
                 await session.message.edit(view=None)
@@ -325,6 +374,12 @@ class VotingCog(commands.Cog):
     @app_commands.command(name="estado_votacion", description="Muestra el estado de la votación actual")
     async def estado_votacion(self, interaction: discord.Interaction):
         """Muestra el estado actual de la votación."""
+        logger.command(
+            "estado_votacion",
+            user=str(interaction.user),
+            guild=self._get_guild_name(interaction)
+        )
+        
         if interaction.channel_id not in self.active_sessions:
             await interaction.response.send_message(
                 "❌ No hay ninguna votación activa en este canal.",
