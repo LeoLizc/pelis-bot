@@ -112,15 +112,24 @@ python main.py
 
 ## 📝 Comandos
 
-| Comando | Descripción |
-|---------|-------------|
-| `/listar [filtro]` | Lista películas (todas, pendientes, vistas) |
-| `/elegir_azar [proponente]` | Elige una película pendiente al azar |
-| `/tachar <nombre>` | Busca y tacha una película como vista |
-| `/buscar <termino> [tipo]` | Busca por título o proponente |
-| `/votacion [cantidad] [max_votos] [tiempo]` | Inicia una votación de películas |
-| `/cancelar_votacion` | Cancela la votación activa |
-| `/estado_votacion` | Muestra el estado de la votación |
+### Gestión de Películas
+| Comando | Parámetros | Descripción |
+|---------|------------|-------------|
+| `/listar` | `[filtro]` | Lista películas: `Todas`, `Pendientes` (por defecto) o `Vistas`. |
+| `/elegir_azar` | `[proponente]` | Elige una película pendiente al azar. Opcionalmente filtra por proponente. |
+| `/buscar` | `<termino> [tipo]` | Busca películas por `Título` (por defecto) o `Proponente`. |
+| `/tachar` | `<nombre>` | Busca una película pendiente y la marca como vista en el documento. |
+
+### Sistema de Votación
+| Comando | Parámetros | Descripción |
+|---------|------------|-------------|
+| `/votacion` | `[cantidad] [max_votos] [tiempo] [proponente]` | Inicia una votación con películas elegidas al azar. Opcionalmente filtra por proponente. |
+| `/votacion_manual`| `[max_votos] [tiempo]` | Inicia una votación permitiendo elegir las películas manualmente. |
+| `/estado_votacion` | - | Muestra el estado actual, votos y tiempo restante. |
+| `/finalizar_votacion` | - | Termina la votación inmediatamente y muestra al ganador. |
+| `/cancelar_votacion` | - | Cancela la votación activa sin mostrar resultados. |
+
+> **Nota**: Los comandos `/finalizar_votacion` y `/cancelar_votacion` solo pueden ser usados por el creador de la votación o un administrador.
 
 ## 🧪 Tests
 
