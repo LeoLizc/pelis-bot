@@ -127,14 +127,16 @@ class VotingCog(commands.Cog):
     @app_commands.describe(
         cantidad="Cantidad de películas a elegir (2-10)",
         max_votos="Máximo de votos por usuario (1-5)",
-        tiempo="Duración en minutos (1-60)"
+        tiempo="Duración en minutos (1-60)",
+        proponente="Filtrar películas por proponente (opcional)"
     )
     async def votacion(
         self,
         interaction: discord.Interaction,
         cantidad: int = 3,
         max_votos: int = 1,
-        tiempo: int = 5
+        tiempo: int = 5,
+        proponente: str = None
     ):
         """Inicia una sesión de votación."""
         await interaction.response.defer()
@@ -144,7 +146,7 @@ class VotingCog(commands.Cog):
             "votacion",
             user=str(interaction.user),
             guild=self._get_guild_name(interaction),
-            args={"cantidad": cantidad, "max_votos": max_votos, "tiempo": tiempo}
+            args={"cantidad": cantidad, "max_votos": max_votos, "tiempo": tiempo, "proponente": proponente}
         )
         
         # Validaciones
@@ -172,13 +174,20 @@ class VotingCog(commands.Cog):
                 return
         
         try:
-            # Obtener películas pendientes
-            pending_movies = self.doc_reader.get_pending_movies()
+            # Obtener películas pendientes (filtrar por proponente si se especifica)
+            if proponente:
+                all_movies = self.doc_reader.get_movies_by_proponent(proponente)
+                pending_movies = [m for m in all_movies if m.is_pending]
+                filter_text = f" de **{proponente}**"
+                logger.debug(f"Filtrando por proponente: {proponente}")
+            else:
+                pending_movies = self.doc_reader.get_pending_movies()
+                filter_text = ""
             logger.debug(f"Películas pendientes disponibles: {len(pending_movies)}")
             
             if len(pending_movies) < cantidad:
                 await interaction.followup.send(
-                    f"❌ No hay suficientes películas pendientes. "
+                    f"❌ No hay suficientes películas pendientes{filter_text}. "
                     f"Disponibles: {len(pending_movies)}, Solicitadas: {cantidad}"
                 )
                 return
