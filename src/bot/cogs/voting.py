@@ -103,6 +103,19 @@ class VotingSession:
             return None, 0
         return results[0]
     
+    def get_tied_winners(self) -> List[Movie]:
+        """Obtiene las películas empatadas en primer lugar."""
+        results = self.get_results()
+        if not results:
+            return []
+        
+        max_votes = results[0][1]
+        if max_votes == 0:
+            return []
+        
+        tied = [movie for movie, votes in results if votes == max_votes]
+        return tied if len(tied) > 1 else []
+    
     def time_remaining(self) -> timedelta:
         """Retorna el tiempo restante de la votación."""
         remaining = self.end_time - datetime.now()
@@ -278,6 +291,78 @@ class VotingCog(commands.Cog):
         session.is_active = False
         logger.debug(f"Finalizando votación en canal {session.channel_id}")
         
+        # Verificar si hay empate
+        tied_movies = session.get_tied_winners()
+        
+        if tied_movies:
+            # Hay empate - mostrar opciones
+            logger.info(f"Empate detectado entre {len(tied_movies)} películas")
+            await self._handle_tie(session, tied_movies)
+            return
+        
+        # Sin empate - mostrar ganador normal
+        await self._show_winner(session)
+    
+    async def _handle_tie(self, session: VotingSession, tied_movies: List[Movie]):
+        """Maneja el caso de empate mostrando opciones."""
+        from src.bot.views.voting_views import TieBreakView
+        
+        results = session.get_results()
+        max_votes = len(session.votes[0]) if session.votes else 0
+        for i, voters in session.votes.items():
+            if len(voters) > max_votes:
+                max_votes = len(voters)
+        
+        # Crear embed de empate
+        embed = discord.Embed(
+            title="🤝 ¡Empate!",
+            description=f"**{len(tied_movies)} películas** empataron con **{max_votes} voto(s)** cada una.",
+            color=discord.Color.orange()
+        )
+        
+        # Lista de empatados
+        tied_list = "\n".join([f"🎬 **{m.titulo}** - {m.proponente}" for m in tied_movies])
+        embed.add_field(
+            name="Películas empatadas",
+            value=tied_list,
+            inline=False
+        )
+        
+        # Mostrar ranking completo
+        ranking = "\n".join([
+            f"{'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else f'{i+1}.'} "
+            f"{movie.titulo} - {count} voto(s)"
+            for i, (movie, count) in enumerate(results)
+        ])
+        embed.add_field(name="📊 Resultados", value=ranking, inline=False)
+        
+        embed.add_field(
+            name="¿Qué hacer?",
+            value="Elige una opción para resolver el empate:",
+            inline=False
+        )
+        
+        # Crear vista con botones de desempate
+        view = TieBreakView(tied_movies, self, session, self.doc_reader)
+        
+        try:
+            channel = self.bot.get_channel(session.channel_id)
+            if channel:
+                await channel.send(embed=embed, view=view)
+                
+                # Deshabilitar botones del mensaje original
+                if session.message:
+                    await session.message.edit(view=None)
+        except Exception as e:
+            logger.error(f"Error al manejar empate: {e}", exc_info=True)
+        
+        # Limpiar sesión (la nueva votación creará una nueva si es necesario)
+        if session.channel_id in self.active_sessions:
+            del self.active_sessions[session.channel_id]
+            logger.debug(f"Sesión de votación limpiada para canal {session.channel_id}")
+    
+    async def _show_winner(self, session: VotingSession, guild_name: str = None):
+        """Muestra el ganador de la votación."""
         # Obtener resultados
         winner, votes = session.get_winner()
         results = session.get_results()
@@ -287,7 +372,7 @@ class VotingCog(commands.Cog):
             logger.voting_end(
                 winner=winner.titulo,
                 votes=votes,
-                guild=None  # No tenemos acceso al guild aquí
+                guild=guild_name
             )
         
         # Crear embed de resultados
@@ -334,7 +419,7 @@ class VotingCog(commands.Cog):
         if session.channel_id in self.active_sessions:
             del self.active_sessions[session.channel_id]
             logger.debug(f"Sesión de votación limpiada para canal {session.channel_id}")
-    
+
     @app_commands.command(name="cancelar_votacion", description="Cancela la votación activa sin mostrar resultados")
     async def cancelar_votacion(self, interaction: discord.Interaction):
         """Cancela una votación activa."""
@@ -419,7 +504,65 @@ class VotingCog(commands.Cog):
             details="Votación finalizada manualmente"
         )
         
-        # Obtener resultados
+        # Deshabilitar botones del mensaje original
+        if session.message:
+            try:
+                await session.message.edit(view=None)
+            except:
+                pass
+        
+        # Verificar si hay empate
+        tied_movies = session.get_tied_winners()
+        
+        if tied_movies:
+            # Hay empate - mostrar opciones
+            logger.info(f"Empate detectado entre {len(tied_movies)} películas")
+            
+            from src.bot.views.voting_views import TieBreakView
+            
+            results = session.get_results()
+            max_votes = results[0][1] if results else 0
+            
+            # Crear embed de empate
+            embed = discord.Embed(
+                title="🤝 ¡Empate!",
+                description=f"*Finalizada manualmente*\n\n**{len(tied_movies)} películas** empataron con **{max_votes} voto(s)** cada una.",
+                color=discord.Color.orange()
+            )
+            
+            # Lista de empatados
+            tied_list = "\n".join([f"🎬 **{m.titulo}** - {m.proponente}" for m in tied_movies])
+            embed.add_field(
+                name="Películas empatadas",
+                value=tied_list,
+                inline=False
+            )
+            
+            # Mostrar ranking completo
+            ranking = "\n".join([
+                f"{'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else f'{i+1}.'} "
+                f"{movie.titulo} - {count} voto(s)"
+                for i, (movie, count) in enumerate(results)
+            ])
+            embed.add_field(name="📊 Resultados", value=ranking, inline=False)
+            
+            embed.add_field(
+                name="¿Qué hacer?",
+                value="Elige una opción para resolver el empate:",
+                inline=False
+            )
+            
+            # Crear vista con botones de desempate
+            view = TieBreakView(tied_movies, self, session, self.doc_reader)
+            
+            # Limpiar sesión
+            del self.active_sessions[interaction.channel_id]
+            logger.debug(f"Sesión de votación limpiada para canal {interaction.channel_id}")
+            
+            await interaction.response.send_message(embed=embed, view=view)
+            return
+        
+        # Sin empate - mostrar ganador normal
         winner, votes = session.get_winner()
         results = session.get_results()
         
@@ -464,13 +607,6 @@ class VotingCog(commands.Cog):
         view = None
         if winner and votes > 0:
             view = StrikeMovieView(winner, self.doc_reader, None, label="Tachar Ganadora")
-        
-        # Deshabilitar botones del mensaje original
-        if session.message:
-            try:
-                await session.message.edit(view=None)
-            except:
-                pass
         
         # Limpiar sesión
         del self.active_sessions[interaction.channel_id]
